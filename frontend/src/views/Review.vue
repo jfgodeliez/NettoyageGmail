@@ -70,8 +70,7 @@
       <!-- Bouton exécuter -->
       <button @click="execute" :disabled="executing"
         class="w-full py-3 rounded-xl font-semibold text-white transition text-base"
-        :class="dryRun ? 'bg-yellow-600 hover:bg-yellow-500' : 'bg-red-600 hover:bg-red-500'"
-        :disabled="executing">
+        :class="dryRun ? 'bg-yellow-600 hover:bg-yellow-500' : 'bg-red-600 hover:bg-red-500'">
         <span v-if="executing" class="animate-pulse">Exécution en cours...</span>
         <span v-else-if="dryRun">Simuler les actions</span>
         <span v-else>Appliquer les actions ({{ totalAffected.toLocaleString() }} emails)</span>

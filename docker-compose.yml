@@ -1,0 +1,46 @@
+services:
+
+  app:
+    build: ./backend
+    restart: unless-stopped
+    volumes:
+      - app_data:/data
+      - ./credentials.json:/app/credentials.json:ro
+    env_file: .env
+    environment:
+      - DB_PATH=/data/gmail_cache.db
+      - GMAIL_TOKEN_FILE=/data/token.json
+    expose:
+      - "8000"
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    expose:
+      - "80"
+
+  nginx:
+    image: nginx:alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - certbot_certs:/etc/letsencrypt:ro
+      - certbot_www:/var/www/certbot:ro
+    depends_on:
+      - app
+      - frontend
+
+  certbot:
+    image: certbot/certbot
+    volumes:
+      - certbot_certs:/etc/letsencrypt
+      - certbot_www:/var/www/certbot
+    entrypoint: /bin/sh -c "trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot --quiet; sleep 12h & wait $${!}; done"
+
+volumes:
+  app_data:
+  certbot_certs:
+  certbot_www:

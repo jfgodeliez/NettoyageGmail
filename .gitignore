@@ -1,4 +1,10 @@
-﻿# Python
+﻿# Credentials Gmail - NE JAMAIS COMMITTER
+credentials.json
+token.json
+.env
+gmail_cache.db
+
+# Python
 __pycache__/
 *.py[cod]
 *.pyo

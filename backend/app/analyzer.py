@@ -43,6 +43,7 @@ class EmailGroup:
     category: str
     emails: list[EmailMeta] = field(default_factory=list)
     sample_senders: list[str] = field(default_factory=list)
+    is_custom: bool = False
 
     @property
     def count(self) -> int:

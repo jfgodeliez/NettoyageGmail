@@ -1,16 +1,15 @@
 """Routes groupes : /api/groups."""
 
-import asyncio
 from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from pydantic import BaseModel
 
 from ..auth_web import build_gmail_service, is_authenticated
 from .. import cache, analyzer, gmail_client
 
 router = APIRouter(prefix="/api/groups", tags=["groups"])
 
-# État du chargement en cours (simple, mono-utilisateur)
 _fetch_state: dict[str, Any] = {"running": False, "progress": 0, "total": 0, "error": None}
 
 
@@ -19,9 +18,13 @@ def _require_auth():
         raise HTTPException(status_code=401, detail="Non authentifié")
 
 
+class CreateGroupRequest(BaseModel):
+    theme: str
+    category: str = "autre"
+
+
 @router.get("")
 def get_groups(refresh: bool = False, _=Depends(_require_auth)):
-    """Retourne la liste des groupes (depuis cache ou en déclenchant un fetch)."""
     if refresh:
         cache.clear_cache()
 
@@ -30,16 +33,38 @@ def get_groups(refresh: bool = False, _=Depends(_require_auth)):
         decisions = cache.load_decisions()
         return _serialize_groups(groups, decisions)
 
-    # Pas de cache : retourner l'état du fetch en cours
     if _fetch_state["running"]:
         return {"fetching": True, "progress": _fetch_state["progress"], "total": _fetch_state["total"]}
 
     return {"fetching": False, "ready": False}
 
 
+@router.post("")
+def create_group(body: CreateGroupRequest, _=Depends(_require_auth)):
+    """Crée un groupe custom persistant."""
+    if not body.theme.strip():
+        raise HTTPException(status_code=400, detail="Le nom du groupe est requis")
+    group_id = cache.create_custom_group(body.theme.strip(), body.category)
+    return {"group_id": group_id, "theme": body.theme.strip(), "category": body.category}
+
+
+@router.delete("/{group_id}")
+def delete_group(group_id: int, _=Depends(_require_auth)):
+    """Supprime un groupe custom (les emails retournent à leur classification d'origine)."""
+    ok = cache.delete_custom_group(group_id)
+    if not ok:
+        raise HTTPException(status_code=400, detail="Seuls les groupes custom peuvent être supprimés")
+    return {"ok": True}
+
+
+@router.get("/list")
+def list_groups_simple(_=Depends(_require_auth)):
+    """Liste id + thème de tous les groupes (pour le sélecteur de déplacement)."""
+    return cache.get_group_list()
+
+
 @router.post("/fetch")
 def trigger_fetch(background_tasks: BackgroundTasks, _=Depends(_require_auth)):
-    """Lance le chargement des emails en tâche de fond."""
     if _fetch_state["running"]:
         return {"ok": True, "message": "Déjà en cours"}
     background_tasks.add_task(_do_fetch)
@@ -65,14 +90,14 @@ def get_group_emails(group_id: int, page: int = 1, per_page: int = 50, _=Depends
         raise HTTPException(status_code=404, detail="Groupe introuvable")
 
     start = (page - 1) * per_page
-    end = start + per_page
-    emails_page = group.emails[start:end]
+    emails_page = group.emails[start: start + per_page]
     decisions = cache.load_decisions()
 
     return {
         "group_id": group.group_id,
         "theme": group.theme,
         "category": group.category,
+        "is_custom": group.is_custom,
         "total": group.count,
         "page": page,
         "per_page": per_page,
@@ -86,6 +111,7 @@ def get_group_emails(group_id: int, page: int = 1, per_page: int = 50, _=Depends
                 "date": e.date,
                 "is_newsletter": e.is_newsletter,
                 "size_kb": e.size_estimate // 1024,
+                "overridden": cache.get_email_override(e.msg_id) is not None,
             }
             for e in emails_page
         ],
@@ -107,7 +133,6 @@ def _do_fetch():
 
         emails = gmail_client.fetch_all_metadata(service, progress_callback=on_progress)
         cache.save_emails(emails)
-
         groups = analyzer.analyze(emails)
         groups = analyzer.merge_small_groups(groups)
         cache.save_groups(groups)
@@ -125,6 +150,7 @@ def _serialize_groups(groups, decisions: dict[int, str]) -> dict:
                 "group_id": g.group_id,
                 "theme": g.theme,
                 "category": g.category,
+                "is_custom": g.is_custom,
                 "count": g.count,
                 "size_mb": round(g.size_mb, 1),
                 "sample_senders": g.sample_senders,

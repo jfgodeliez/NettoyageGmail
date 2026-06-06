@@ -4,7 +4,10 @@
     <div class="bg-gray-900 border-b border-gray-800 px-6 py-3 flex items-center gap-4 flex-shrink-0">
       <RouterLink to="/" class="text-gray-400 hover:text-white text-sm transition">← Retour</RouterLink>
       <div class="flex-1 min-w-0">
-        <h2 class="font-semibold text-white truncate">{{ group?.theme }}</h2>
+        <div class="flex items-center gap-2">
+          <h2 class="font-semibold text-white truncate">{{ group?.theme }}</h2>
+          <span v-if="group?.is_custom" class="text-xs bg-purple-900 text-purple-300 px-1.5 py-0.5 rounded-full">Custom</span>
+        </div>
         <p class="text-xs text-gray-400">{{ group?.total?.toLocaleString() }} emails • page {{ page }}</p>
       </div>
       <!-- Actions groupe -->
@@ -36,16 +39,33 @@
         </div>
         <ul v-else class="flex-1 overflow-y-auto divide-y divide-gray-800">
           <li v-for="email in emails" :key="email.msg_id"
-            @click="selectedEmail = email"
             :class="selectedEmail?.msg_id === email.msg_id ? 'bg-blue-950 border-l-2 border-blue-500' : 'hover:bg-gray-800'"
-            class="px-4 py-3 cursor-pointer transition">
-            <p class="text-sm font-medium text-white truncate">{{ email.subject || '(sans objet)' }}</p>
-            <p class="text-xs text-gray-400 truncate mt-0.5">{{ email.sender }}</p>
-            <p class="text-xs text-gray-500 mt-0.5 flex items-center gap-2">
-              <span>{{ email.date?.slice(0, 16) }}</span>
-              <span v-if="email.is_newsletter" class="text-yellow-600">Newsletter</span>
-              <span class="ml-auto">{{ email.size_kb }} Ko</span>
-            </p>
+            class="px-4 py-3 transition group/item">
+            <!-- Ligne principale cliquable -->
+            <div @click="selectedEmail = email" class="cursor-pointer">
+              <div class="flex items-start justify-between gap-2">
+                <p class="text-sm font-medium text-white truncate flex-1">{{ email.subject || '(sans objet)' }}</p>
+                <!-- Badge déplacé -->
+                <span v-if="email.overridden" class="text-xs bg-purple-900 text-purple-300 px-1.5 py-0.5 rounded-full flex-shrink-0">↪</span>
+              </div>
+              <p class="text-xs text-gray-400 truncate mt-0.5">{{ email.sender }}</p>
+              <div class="flex items-center gap-2 mt-0.5">
+                <span class="text-xs text-gray-500">{{ email.date?.slice(0, 16) }}</span>
+                <span v-if="email.is_newsletter" class="text-xs text-yellow-600">Newsletter</span>
+                <span class="ml-auto text-xs text-gray-500">{{ email.size_kb }} Ko</span>
+              </div>
+            </div>
+            <!-- Bouton déplacer (visible au hover) -->
+            <div class="mt-1.5 flex gap-2 opacity-0 group-hover/item:opacity-100 transition">
+              <button @click.stop="openMoveModal(email)"
+                class="text-xs text-blue-400 hover:text-blue-300 border border-blue-800 hover:border-blue-600 px-2 py-0.5 rounded transition">
+                ↪ Déplacer
+              </button>
+              <button v-if="email.overridden" @click.stop="resetMove(email)"
+                class="text-xs text-gray-400 hover:text-gray-300 border border-gray-700 px-2 py-0.5 rounded transition">
+                ↩ Remettre
+              </button>
+            </div>
           </li>
         </ul>
         <!-- Pagination -->
@@ -66,6 +86,15 @@
         <EmailPreview v-else :email="selectedEmail" @close="selectedEmail = null" class="flex-1" />
       </div>
     </div>
+
+    <!-- Modal déplacement -->
+    <MoveEmailModal
+      v-if="emailToMove"
+      :email="emailToMove"
+      :current-group-id="Number(route.params.id)"
+      @close="emailToMove = null"
+      @moved="onEmailMoved"
+    />
   </div>
 </template>
 
@@ -75,6 +104,7 @@ import { useRoute } from 'vue-router'
 import axios from 'axios'
 import { useDecisionsStore } from '../stores/decisions.js'
 import EmailPreview from '../components/EmailPreview.vue'
+import MoveEmailModal from '../components/MoveEmailModal.vue'
 
 const route = useRoute()
 const store = useDecisionsStore()
@@ -83,6 +113,7 @@ const group = ref(null)
 const emails = ref([])
 const loading = ref(false)
 const selectedEmail = ref(null)
+const emailToMove = ref(null)
 const page = ref(1)
 const perPage = 50
 
@@ -94,11 +125,7 @@ const decision = computed({
 const totalPages = computed(() => Math.ceil((group.value?.total || 0) / perPage))
 
 onMounted(() => loadPage())
-
-watch(page, () => {
-  selectedEmail.value = null
-  loadPage()
-})
+watch(page, () => { selectedEmail.value = null; loadPage() })
 
 async function loadPage() {
   loading.value = true
@@ -115,6 +142,33 @@ async function loadPage() {
 
 async function setDecision(action) {
   await store.setDecision(Number(route.params.id), action)
+}
+
+function openMoveModal(email) {
+  emailToMove.value = email
+}
+
+async function resetMove(email) {
+  await axios.delete(`/api/emails/${email.msg_id}/move`)
+  email.overridden = false
+  // Retirer l'email de la liste si c'est un groupe custom (il n'y est plus)
+  if (group.value?.is_custom) {
+    emails.value = emails.value.filter(e => e.msg_id !== email.msg_id)
+    group.value.total = Math.max(0, group.value.total - 1)
+  }
+}
+
+function onEmailMoved({ msg_id }) {
+  // Marquer l'email comme déplacé ou le retirer si c'est un groupe custom
+  const email = emails.value.find(e => e.msg_id === msg_id)
+  if (email) {
+    if (group.value?.is_custom) {
+      emails.value = emails.value.filter(e => e.msg_id !== msg_id)
+      group.value.total = Math.max(0, group.value.total - 1)
+    } else {
+      email.overridden = true
+    }
+  }
 }
 
 function prevPage() { if (page.value > 1) page.value-- }

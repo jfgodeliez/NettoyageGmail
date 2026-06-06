@@ -56,6 +56,35 @@
             class="text-gray-400 hover:text-white border border-gray-700 hover:border-gray-500 px-3 py-2 rounded-lg text-sm transition">
             🔄 Rafraîchir
           </button>
+          <button @click="showCreateGroup = true"
+            class="bg-purple-700 hover:bg-purple-600 text-white px-3 py-2 rounded-lg text-sm font-medium transition">
+            + Nouveau groupe
+          </button>
+        </div>
+      </div>
+
+      <!-- Modal créer groupe -->
+      <div v-if="showCreateGroup" class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
+        <div class="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-sm shadow-2xl p-6 space-y-4">
+          <h3 class="font-semibold text-white">Créer un groupe custom</h3>
+          <input v-model="newGroupName" @keyup.enter="createGroup" placeholder="Nom du groupe (ex: Famille)"
+            class="w-full bg-gray-800 border border-gray-700 text-gray-200 text-sm rounded-lg px-3 py-2 focus:ring-purple-500 focus:border-purple-500 placeholder-gray-600" />
+          <select v-model="newGroupCategory"
+            class="w-full bg-gray-800 border border-gray-700 text-gray-200 text-sm rounded-lg px-3 py-2">
+            <option value="autre">Autre</option>
+            <option value="perso">Personnel</option>
+            <option value="admin">Administratif</option>
+            <option value="commercial">Commercial</option>
+            <option value="newsletter">Newsletter</option>
+            <option value="social">Social</option>
+          </select>
+          <div class="flex gap-3 justify-end">
+            <button @click="showCreateGroup = false" class="text-gray-400 hover:text-white text-sm px-4 py-2 rounded-lg">Annuler</button>
+            <button @click="createGroup" :disabled="!newGroupName.trim()"
+              class="bg-purple-600 hover:bg-purple-500 text-white text-sm font-medium px-4 py-2 rounded-lg disabled:opacity-50">
+              Créer
+            </button>
+          </div>
         </div>
       </div>
 
@@ -63,13 +92,17 @@
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         <RouterLink v-for="g in filteredGroups" :key="g.group_id"
           :to="`/groups/${g.group_id}`"
-          class="group bg-gray-900 border border-gray-800 hover:border-gray-600 rounded-xl p-5 transition cursor-pointer flex flex-col gap-3">
+          class="group bg-gray-900 border border-gray-800 hover:border-gray-600 rounded-xl p-5 transition cursor-pointer flex flex-col gap-3"
+          :class="g.is_custom ? 'border-purple-900' : ''">
 
           <!-- Badge catégorie + décision -->
           <div class="flex items-center justify-between">
-            <span :class="categoryBadge(g.category)" class="text-xs font-medium px-2 py-0.5 rounded-full">
-              {{ categoryLabel(g.category) }}
-            </span>
+            <div class="flex items-center gap-1.5">
+              <span :class="categoryBadge(g.category)" class="text-xs font-medium px-2 py-0.5 rounded-full">
+                {{ categoryLabel(g.category) }}
+              </span>
+              <span v-if="g.is_custom" class="text-xs bg-purple-900 text-purple-300 px-1.5 py-0.5 rounded-full">Custom</span>
+            </div>
             <span v-if="g.decision && g.decision !== 'keep'" :class="decisionBadge(g.decision)" class="text-xs font-medium px-2 py-0.5 rounded-full">
               {{ decisionLabel(g.decision) }}
             </span>
@@ -80,7 +113,7 @@
           <h3 class="font-semibold text-white group-hover:text-blue-400 transition leading-snug">{{ g.theme }}</h3>
 
           <!-- Expéditeurs -->
-          <p class="text-xs text-gray-500 truncate">{{ g.sample_senders.join(' • ') }}</p>
+          <p class="text-xs text-gray-500 truncate">{{ g.sample_senders.join(' • ') || '(vide)' }}</p>
 
           <!-- Stats -->
           <div class="flex items-center justify-between text-sm mt-auto pt-2 border-t border-gray-800">
@@ -108,6 +141,9 @@ const fetchProgress = ref(0)
 const fetchTotal = ref(0)
 const groups = ref([])
 const filterCategory = ref('')
+const showCreateGroup = ref(false)
+const newGroupName = ref('')
+const newGroupCategory = ref('autre')
 let pollInterval = null
 
 const totalEmails = computed(() => groups.value.reduce((s, g) => s + g.count, 0))
@@ -151,6 +187,15 @@ async function startFetch() {
   await axios.post('/api/groups/fetch')
   fetching.value = true
   startPolling()
+}
+
+async function createGroup() {
+  if (!newGroupName.value.trim()) return
+  await axios.post('/api/groups', { theme: newGroupName.value.trim(), category: newGroupCategory.value })
+  newGroupName.value = ''
+  newGroupCategory.value = 'autre'
+  showCreateGroup.value = false
+  await loadGroups()
 }
 
 function startPolling() {

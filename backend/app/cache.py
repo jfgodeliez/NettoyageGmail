@@ -227,6 +227,13 @@ def clear_decisions() -> None:
 
 # ── État du cache ─────────────────────────────────────────────────────────────
 
+def count_cached_emails() -> int:
+    if not os.path.exists(DB_PATH):
+        return 0
+    with _conn() as con:
+        return con.execute("SELECT COUNT(*) FROM emails").fetchone()[0]
+
+
 def cache_has_emails() -> bool:
     if not os.path.exists(DB_PATH):
         return False
@@ -239,6 +246,56 @@ def cache_has_groups() -> bool:
         return False
     with _conn() as con:
         return con.execute("SELECT COUNT(*) FROM groups").fetchone()[0] > 0
+
+
+def remove_emails(msg_ids: set[str]) -> None:
+    """Retire les emails traités du cache et met à jour les groupes en conséquence.
+
+    Les groupes auto qui deviennent vides sont supprimés.
+    Les groupes custom vides sont conservés.
+    """
+    if not msg_ids:
+        return
+    from collections import Counter
+    ids_list = list(msg_ids)
+    placeholders = ",".join("?" * len(ids_list))
+
+    with _conn() as con:
+        con.execute(f"DELETE FROM emails WHERE msg_id IN ({placeholders})", ids_list)
+        con.execute(f"DELETE FROM email_overrides WHERE msg_id IN ({placeholders})", ids_list)
+
+        # Index domaine des emails restants pour recalculer sample_senders
+        remaining = {
+            r["msg_id"]: r["sender_domain"]
+            for r in con.execute("SELECT msg_id, sender_domain FROM emails").fetchall()
+        }
+
+        for row in con.execute("SELECT group_id, email_ids, is_custom FROM groups").fetchall():
+            old_ids: list[str] = json.loads(row["email_ids"])
+            new_ids = [mid for mid in old_ids if mid not in msg_ids]
+
+            if not new_ids and not row["is_custom"]:
+                con.execute("DELETE FROM groups WHERE group_id=?", (row["group_id"],))
+                con.execute("DELETE FROM decisions WHERE group_id=?", (row["group_id"],))
+            else:
+                top_senders = [
+                    d for d, _ in Counter(
+                        remaining[mid] for mid in new_ids if mid in remaining
+                    ).most_common(3)
+                ]
+                con.execute(
+                    "UPDATE groups SET email_ids=?, sample_senders=? WHERE group_id=?",
+                    (json.dumps(new_ids), json.dumps(top_senders), row["group_id"]),
+                )
+
+
+def clear_decisions_for_groups(group_ids: set[int]) -> None:
+    """Efface les décisions pour les groupes dont l'action a été exécutée."""
+    if not group_ids:
+        return
+    placeholders = ",".join("?" * len(group_ids))
+    with _conn() as con:
+        con.execute(f"DELETE FROM decisions WHERE group_id IN ({placeholders})", list(group_ids))
 
 
 def clear_cache() -> None:

@@ -58,12 +58,15 @@
         <p class="font-semibold" :class="result.errors > 0 ? 'text-red-300' : 'text-green-300'">
           {{ result.dry_run ? '[Simulation] ' : '' }}{{ result.done }} email(s) traité(s), {{ result.errors }} erreur(s)
         </p>
+        <p v-if="!result.dry_run && result.cache_remaining != null" class="text-xs text-gray-400 mt-1">
+          Cache mis à jour — {{ result.cache_remaining.toLocaleString() }} emails restants, aucun rescan nécessaire.
+        </p>
         <ul v-if="result.details?.length" class="mt-2 space-y-1">
           <li v-for="d in result.details" :key="d" class="text-xs text-gray-400">{{ d }}</li>
         </ul>
         <RouterLink v-if="!result.dry_run && result.done > 0" to="/"
           class="inline-block mt-3 text-sm text-blue-400 hover:underline">
-          Retour au dashboard pour une nouvelle analyse →
+          Retour au dashboard →
         </RouterLink>
       </div>
 
@@ -83,8 +86,10 @@
 import { ref, computed, onMounted } from 'vue'
 import axios from 'axios'
 import { useDecisionsStore } from '../stores/decisions.js'
+import { useGroupsStore } from '../stores/groups.js'
 
 const store = useDecisionsStore()
+const groupsStore = useGroupsStore()
 const dryRun = ref(false)
 const executing = ref(false)
 const result = ref(null)
@@ -92,7 +97,7 @@ const groupsData = ref([])
 
 onMounted(async () => {
   await store.load()
-  const { data } = await axios.get('/api/groups')
+  const { data } = await axios.get('/api/groups', { withCredentials: true })
   if (data.ready) groupsData.value = data.groups
 })
 
@@ -111,8 +116,9 @@ async function execute() {
     const { data } = await axios.post('/api/execute', { dry_run: dryRun.value })
     result.value = data
     if (!dryRun.value && data.done > 0) {
-      store.decisions = {}
-      groupsData.value = []
+      // Recharger le store partagé depuis le cache mis à jour — pas de rescan
+      await groupsStore.load()
+      groupsData.value = groupsStore.groups
     }
   } catch (e) {
     result.value = { done: 0, errors: 1, details: [e.response?.data?.detail || e.message] }

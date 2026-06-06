@@ -53,11 +53,15 @@ def execute(body: ExecuteRequest, _=Depends(require_session)):
     result = gmail_actions.execute_decisions(service, decisions, groups_by_id, dry_run=body.dry_run)
 
     if not body.dry_run and result.done > 0:
-        cache.clear_cache()
+        # Mise à jour chirurgicale : retirer uniquement les emails traités,
+        # recalculer les groupes depuis le cache — pas de rescan Gmail.
+        cache.remove_emails(set(result.processed_ids))
+        cache.clear_decisions_for_groups(set(result.processed_group_ids))
 
     return {
         "done": result.done,
         "errors": result.errors,
         "details": result.details,
         "dry_run": body.dry_run,
+        "cache_remaining": cache.count_cached_emails(),
     }

@@ -13,6 +13,8 @@ class ActionResult:
     done: int = 0
     errors: int = 0
     details: list[str] = field(default_factory=list)
+    processed_ids: list[str] = field(default_factory=list)
+    processed_group_ids: list[int] = field(default_factory=list)
 
 
 def execute_decisions(
@@ -24,6 +26,7 @@ def execute_decisions(
     result = ActionResult()
     for group_id, action in decisions.items():
         if action == "keep":
+            result.processed_group_ids.append(group_id)
             continue
         group = groups_by_id.get(group_id)
         if not group:
@@ -44,6 +47,9 @@ def execute_decisions(
         result.done += r.done
         result.errors += r.errors
         result.details.append(f"{action} → {group.theme} ({r.done} ok, {r.errors} erreurs)")
+        # Collecter les IDs traités pour la mise à jour du cache
+        result.processed_ids.extend(ids)
+        result.processed_group_ids.append(group_id)
 
     return result
 

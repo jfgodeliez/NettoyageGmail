@@ -5,17 +5,13 @@ from typing import Any
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 
-from ..auth_web import build_gmail_service, is_authenticated
+from ..auth_web import build_gmail_service
+from ..session import require_session
 from .. import cache, analyzer, gmail_client
 
 router = APIRouter(prefix="/api/groups", tags=["groups"])
 
 _fetch_state: dict[str, Any] = {"running": False, "progress": 0, "total": 0, "error": None}
-
-
-def _require_auth():
-    if not is_authenticated():
-        raise HTTPException(status_code=401, detail="Non authentifié")
 
 
 class CreateGroupRequest(BaseModel):
@@ -24,7 +20,7 @@ class CreateGroupRequest(BaseModel):
 
 
 @router.get("")
-def get_groups(refresh: bool = False, _=Depends(_require_auth)):
+def get_groups(refresh: bool = False, _=Depends(require_session)):
     if refresh:
         cache.clear_cache()
 
@@ -40,7 +36,7 @@ def get_groups(refresh: bool = False, _=Depends(_require_auth)):
 
 
 @router.post("")
-def create_group(body: CreateGroupRequest, _=Depends(_require_auth)):
+def create_group(body: CreateGroupRequest, _=Depends(require_session)):
     """Crée un groupe custom persistant."""
     if not body.theme.strip():
         raise HTTPException(status_code=400, detail="Le nom du groupe est requis")
@@ -49,7 +45,7 @@ def create_group(body: CreateGroupRequest, _=Depends(_require_auth)):
 
 
 @router.delete("/{group_id}")
-def delete_group(group_id: int, _=Depends(_require_auth)):
+def delete_group(group_id: int, _=Depends(require_session)):
     """Supprime un groupe custom (les emails retournent à leur classification d'origine)."""
     ok = cache.delete_custom_group(group_id)
     if not ok:
@@ -58,13 +54,13 @@ def delete_group(group_id: int, _=Depends(_require_auth)):
 
 
 @router.get("/list")
-def list_groups_simple(_=Depends(_require_auth)):
+def list_groups_simple(_=Depends(require_session)):
     """Liste id + thème de tous les groupes (pour le sélecteur de déplacement)."""
     return cache.get_group_list()
 
 
 @router.post("/fetch")
-def trigger_fetch(background_tasks: BackgroundTasks, _=Depends(_require_auth)):
+def trigger_fetch(background_tasks: BackgroundTasks, _=Depends(require_session)):
     if _fetch_state["running"]:
         return {"ok": True, "message": "Déjà en cours"}
     background_tasks.add_task(_do_fetch)
@@ -72,7 +68,7 @@ def trigger_fetch(background_tasks: BackgroundTasks, _=Depends(_require_auth)):
 
 
 @router.get("/fetch-status")
-def fetch_status(_=Depends(_require_auth)):
+def fetch_status(_=Depends(require_session)):
     return {
         "running": _fetch_state["running"],
         "progress": _fetch_state["progress"],
@@ -83,7 +79,7 @@ def fetch_status(_=Depends(_require_auth)):
 
 
 @router.get("/{group_id}/emails")
-def get_group_emails(group_id: int, page: int = 1, per_page: int = 50, _=Depends(_require_auth)):
+def get_group_emails(group_id: int, page: int = 1, per_page: int = 50, _=Depends(require_session)):
     groups = cache.load_groups_with_emails()
     group = next((g for g in groups if g.group_id == group_id), None)
     if not group:

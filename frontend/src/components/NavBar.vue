@@ -9,8 +9,7 @@
         Réviser les actions
         <span class="bg-blue-400 text-white text-xs font-bold px-1.5 py-0.5 rounded-full">{{ store.activeCount }}</span>
       </RouterLink>
-      <button v-if="authenticated" @click="logout"
-        class="text-gray-400 hover:text-red-400 text-sm transition">
+      <button @click="logout" class="text-gray-400 hover:text-red-400 text-sm transition">
         Déconnexion
       </button>
     </div>
@@ -18,21 +17,24 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import axios from 'axios'
 import { useDecisionsStore } from '../stores/decisions.js'
 
 const store = useDecisionsStore()
-const authenticated = ref(false)
+const router = useRouter()
 
 onMounted(async () => {
-  const { data } = await axios.get('/auth/status')
-  authenticated.value = data.authenticated
-  if (authenticated.value) store.load()
+  try {
+    const { data } = await axios.get('/auth/status', { withCredentials: true })
+    if (data.authenticated) store.load()
+  } catch { /* non connecté à Gmail, pas grave */ }
 })
 
 async function logout() {
-  await axios.post('/auth/logout')
-  window.location.href = '/'
+  await axios.post('/auth/app-logout', {}, { withCredentials: true })
+  store.decisions = {}
+  router.push('/login')
 }
 </script>

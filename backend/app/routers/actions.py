@@ -3,17 +3,13 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from ..auth_web import build_gmail_service, is_authenticated
+from ..auth_web import build_gmail_service
+from ..session import require_session
 from .. import cache, actions as gmail_actions
 
 router = APIRouter(prefix="/api", tags=["actions"])
 
 VALID_ACTIONS = {"keep", "trash", "archive"}
-
-
-def _require_auth():
-    if not is_authenticated():
-        raise HTTPException(status_code=401, detail="Non authentifié")
 
 
 class DecisionRequest(BaseModel):
@@ -26,7 +22,7 @@ class ExecuteRequest(BaseModel):
 
 
 @router.post("/decisions")
-def save_decision(body: DecisionRequest, _=Depends(_require_auth)):
+def save_decision(body: DecisionRequest, _=Depends(require_session)):
     if body.action not in VALID_ACTIONS:
         raise HTTPException(status_code=400, detail=f"Action invalide : {body.action}")
     cache.save_decision(body.group_id, body.action)
@@ -34,18 +30,18 @@ def save_decision(body: DecisionRequest, _=Depends(_require_auth)):
 
 
 @router.get("/decisions")
-def get_decisions(_=Depends(_require_auth)):
+def get_decisions(_=Depends(require_session)):
     return cache.load_decisions()
 
 
 @router.delete("/decisions")
-def clear_decisions(_=Depends(_require_auth)):
+def clear_decisions(_=Depends(require_session)):
     cache.clear_decisions()
     return {"ok": True}
 
 
 @router.post("/execute")
-def execute(body: ExecuteRequest, _=Depends(_require_auth)):
+def execute(body: ExecuteRequest, _=Depends(require_session)):
     decisions = cache.load_decisions()
     if not decisions:
         raise HTTPException(status_code=400, detail="Aucune décision à exécuter")

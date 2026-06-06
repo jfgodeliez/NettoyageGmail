@@ -43,19 +43,34 @@ def clear_decisions(_=Depends(require_session)):
 @router.post("/execute")
 def execute(body: ExecuteRequest, _=Depends(require_session)):
     decisions = cache.load_decisions()
-    if not decisions:
+    email_decisions = cache.load_email_decisions()
+
+    if not decisions and not email_decisions:
         raise HTTPException(status_code=400, detail="Aucune décision à exécuter")
 
     groups = cache.load_groups_with_emails()
     groups_by_id = {g.group_id: g for g in groups}
 
     service = None if body.dry_run else build_gmail_service()
-    result = gmail_actions.execute_decisions(service, decisions, groups_by_id, dry_run=body.dry_run)
 
-    if not body.dry_run and result.done > 0:
-        # Mise à jour chirurgicale : retirer uniquement les emails traités,
-        # recalculer les groupes depuis le cache — pas de rescan Gmail.
-        cache.remove_emails(set(result.processed_ids))
+    # Décisions individuelles d'abord
+    result = gmail_actions.execute_email_decisions(service, email_decisions, dry_run=body.dry_run)
+
+    # Décisions de groupe (en excluant les emails déjà traités individuellement)
+    group_result = gmail_actions.execute_decisions(service, decisions, groups_by_id, dry_run=body.dry_run)
+    result.done += group_result.done
+    result.errors += group_result.errors
+    result.details.extend(group_result.details)
+    result.processed_ids.extend(group_result.processed_ids)
+    result.processed_group_ids.extend(group_result.processed_group_ids)
+
+    if not body.dry_run:
+        all_processed = set(result.processed_ids)
+        if email_decisions:
+            # Les emails individuels sont inclus dans processed_ids si traités
+            cache.clear_email_decisions_for_ids(set(email_decisions.keys()))
+        if all_processed:
+            cache.remove_emails(all_processed)
         cache.clear_decisions_for_groups(set(result.processed_group_ids))
 
     return {

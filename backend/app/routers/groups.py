@@ -88,6 +88,8 @@ def get_group_emails(group_id: int, page: int = 1, per_page: int = 50, _=Depends
     start = (page - 1) * per_page
     emails_page = group.emails[start: start + per_page]
     decisions = cache.load_decisions()
+    # Charger toutes les décisions individuelles d'un coup (évite N+1)
+    all_email_decisions = cache.load_email_decisions()
 
     return {
         "group_id": group.group_id,
@@ -108,6 +110,7 @@ def get_group_emails(group_id: int, page: int = 1, per_page: int = 50, _=Depends
                 "is_newsletter": e.is_newsletter,
                 "size_kb": e.size_estimate // 1024,
                 "overridden": cache.get_email_override(e.msg_id) is not None,
+                "email_decision": all_email_decisions.get(e.msg_id),
             }
             for e in emails_page
         ],

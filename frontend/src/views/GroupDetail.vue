@@ -39,14 +39,23 @@
         </div>
         <ul v-else class="flex-1 overflow-y-auto divide-y divide-gray-800">
           <li v-for="email in emails" :key="email.msg_id"
-            :class="selectedEmail?.msg_id === email.msg_id ? 'bg-blue-950 border-l-2 border-blue-500' : 'hover:bg-gray-800'"
+            :class="[
+              selectedEmail?.msg_id === email.msg_id ? 'bg-blue-950 border-l-2 border-blue-500' : 'hover:bg-gray-800',
+              email.email_decision === 'trash' ? 'border-l-2 border-red-700 bg-red-950/20' : '',
+            ]"
             class="px-4 py-3 transition group/item">
             <!-- Ligne principale cliquable -->
             <div @click="selectedEmail = email" class="cursor-pointer">
               <div class="flex items-start justify-between gap-2">
-                <p class="text-sm font-medium text-white truncate flex-1">{{ email.subject || '(sans objet)' }}</p>
-                <!-- Badge déplacé -->
-                <span v-if="email.overridden" class="text-xs bg-purple-900 text-purple-300 px-1.5 py-0.5 rounded-full flex-shrink-0">↪</span>
+                <p class="text-sm font-medium truncate flex-1"
+                  :class="email.email_decision === 'trash' ? 'text-red-400 line-through' : 'text-white'">
+                  {{ email.subject || '(sans objet)' }}
+                </p>
+                <!-- Badges -->
+                <span v-if="email.email_decision === 'trash'"
+                  class="text-xs bg-red-900 text-red-300 px-1.5 py-0.5 rounded-full flex-shrink-0">🗑</span>
+                <span v-else-if="email.overridden"
+                  class="text-xs bg-purple-900 text-purple-300 px-1.5 py-0.5 rounded-full flex-shrink-0">↪</span>
               </div>
               <p class="text-xs text-gray-400 truncate mt-0.5">{{ email.sender }}</p>
               <div class="flex items-center gap-2 mt-0.5">
@@ -55,8 +64,15 @@
                 <span class="ml-auto text-xs text-gray-500">{{ email.size_kb }} Ko</span>
               </div>
             </div>
-            <!-- Bouton déplacer (visible au hover) -->
+            <!-- Actions (visible au hover) -->
             <div class="mt-1.5 flex gap-2 opacity-0 group-hover/item:opacity-100 transition">
+              <button @click.stop="toggleTrash(email)"
+                :class="email.email_decision === 'trash'
+                  ? 'text-red-400 border-red-700 hover:text-gray-300 hover:border-gray-600'
+                  : 'text-red-500 hover:text-red-400 border-red-900 hover:border-red-700'"
+                class="text-xs border px-2 py-0.5 rounded transition">
+                {{ email.email_decision === 'trash' ? '↩ Annuler' : '🗑 Supprimer' }}
+              </button>
               <button @click.stop="openMoveModal(email)"
                 class="text-xs text-blue-400 hover:text-blue-300 border border-blue-800 hover:border-blue-600 px-2 py-0.5 rounded transition">
                 ↪ Déplacer
@@ -168,6 +184,16 @@ function onEmailMoved({ msg_id }) {
     } else {
       email.overridden = true
     }
+  }
+}
+
+async function toggleTrash(email) {
+  if (email.email_decision === 'trash') {
+    await axios.delete(`/api/emails/${email.msg_id}/decision`, { withCredentials: true })
+    email.email_decision = null
+  } else {
+    await axios.post(`/api/emails/${email.msg_id}/decision`, { action: 'trash' }, { withCredentials: true })
+    email.email_decision = 'trash'
   }
 }
 

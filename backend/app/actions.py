@@ -17,6 +17,41 @@ class ActionResult:
     processed_group_ids: list[int] = field(default_factory=list)
 
 
+def execute_email_decisions(
+    service,
+    email_decisions: dict[str, str],
+    dry_run: bool = False,
+) -> ActionResult:
+    """Exécute les décisions de suppression/archivage individuelles par email."""
+    result = ActionResult()
+    trash_ids = [mid for mid, action in email_decisions.items() if action == "trash"]
+    archive_ids = [mid for mid, action in email_decisions.items() if action == "archive"]
+
+    if trash_ids:
+        if dry_run:
+            result.done += len(trash_ids)
+            result.details.append(f"[dry-run] trash → {len(trash_ids)} email(s) individuel(s)")
+        else:
+            r = _batch_modify(service, trash_ids, add_labels=["TRASH"], remove_labels=["INBOX"])
+            result.done += r.done
+            result.errors += r.errors
+            result.processed_ids.extend(trash_ids)
+            result.details.append(f"trash → {r.done} email(s) individuel(s) ({r.errors} erreur(s))")
+
+    if archive_ids:
+        if dry_run:
+            result.done += len(archive_ids)
+            result.details.append(f"[dry-run] archive → {len(archive_ids)} email(s) individuel(s)")
+        else:
+            r = _batch_modify(service, archive_ids, add_labels=[], remove_labels=["INBOX"])
+            result.done += r.done
+            result.errors += r.errors
+            result.processed_ids.extend(archive_ids)
+            result.details.append(f"archive → {r.done} email(s) individuel(s) ({r.errors} erreur(s))")
+
+    return result
+
+
 def execute_decisions(
     service,
     decisions: dict[int, str],

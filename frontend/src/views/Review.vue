@@ -3,11 +3,11 @@
     <h1 class="text-2xl font-bold text-white mb-1">Révision des actions</h1>
     <p class="text-gray-400 text-sm mb-8">Vérifiez vos décisions avant de les appliquer.</p>
 
-    <div v-if="!store.activeCount" class="text-center py-16 text-gray-500">
+    <div v-if="!store.activeCount && !individualCount" class="text-center py-16 text-gray-500">
       Aucune action planifiée. <RouterLink to="/" class="text-blue-400 hover:underline">Retour au dashboard</RouterLink>
     </div>
 
-    <template v-else>
+    <template v-else-if="store.activeCount || individualCount">
       <!-- Tableau récapitulatif -->
       <div class="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden mb-6">
         <table class="w-full text-sm">
@@ -42,6 +42,14 @@
             </tr>
           </tfoot>
         </table>
+      </div>
+
+      <!-- Emails marqués individuellement -->
+      <div v-if="individualCount" class="mb-6 p-4 bg-red-950/40 border border-red-900 rounded-xl flex items-center justify-between">
+        <div>
+          <p class="text-red-300 font-medium text-sm">🗑 {{ individualCount }} email(s) marqué(s) individuellement pour suppression</p>
+          <p class="text-gray-500 text-xs mt-0.5">Ces emails seront traités en plus des décisions de groupe ci-dessus.</p>
+        </div>
       </div>
 
       <!-- Mode dry-run -->
@@ -94,11 +102,16 @@ const dryRun = ref(false)
 const executing = ref(false)
 const result = ref(null)
 const groupsData = ref([])
+const individualCount = ref(0)
 
 onMounted(async () => {
   await store.load()
-  const { data } = await axios.get('/api/groups', { withCredentials: true })
-  if (data.ready) groupsData.value = data.groups
+  const [groupsRes, countRes] = await Promise.all([
+    axios.get('/api/groups', { withCredentials: true }),
+    axios.get('/api/emails/decisions/count', { withCredentials: true }),
+  ])
+  if (groupsRes.data.ready) groupsData.value = groupsRes.data.groups
+  individualCount.value = countRes.data.count
 })
 
 const actionableGroups = computed(() =>
@@ -116,7 +129,7 @@ async function execute() {
     const { data } = await axios.post('/api/execute', { dry_run: dryRun.value })
     result.value = data
     if (!dryRun.value && data.done > 0) {
-      // Recharger le store partagé depuis le cache mis à jour — pas de rescan
+      individualCount.value = 0
       await groupsStore.load()
       groupsData.value = groupsStore.groups
     }

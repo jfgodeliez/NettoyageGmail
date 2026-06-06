@@ -1,4 +1,4 @@
-"""Routes emails : aperçu et déplacement entre groupes."""
+"""Routes emails : aperçu, déplacement et décisions individuelles."""
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -10,9 +10,15 @@ from .. import cache
 
 router = APIRouter(prefix="/api/emails", tags=["emails"])
 
+VALID_EMAIL_ACTIONS = {"trash", "archive"}
+
 
 class MoveRequest(BaseModel):
     target_group_id: int
+
+
+class EmailDecisionRequest(BaseModel):
+    action: str
 
 
 @router.get("/{msg_id}/preview")
@@ -37,3 +43,22 @@ def move_email(msg_id: str, body: MoveRequest, _=Depends(require_session)):
 def reset_move(msg_id: str, _=Depends(require_session)):
     cache.reset_email_override(msg_id)
     return {"ok": True}
+
+
+@router.post("/{msg_id}/decision")
+def set_email_decision(msg_id: str, body: EmailDecisionRequest, _=Depends(require_session)):
+    if body.action not in VALID_EMAIL_ACTIONS:
+        raise HTTPException(status_code=400, detail=f"Action invalide : {body.action}")
+    cache.set_email_decision(msg_id, body.action)
+    return {"ok": True, "action": body.action}
+
+
+@router.delete("/{msg_id}/decision")
+def delete_email_decision(msg_id: str, _=Depends(require_session)):
+    cache.delete_email_decision(msg_id)
+    return {"ok": True}
+
+
+@router.get("/decisions/count")
+def count_email_decisions(_=Depends(require_session)):
+    return {"count": cache.count_email_decisions()}

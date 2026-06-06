@@ -45,6 +45,10 @@ CREATE TABLE IF NOT EXISTS email_overrides (
     group_id    INTEGER,
     FOREIGN KEY (group_id) REFERENCES groups(group_id)
 );
+CREATE TABLE IF NOT EXISTS email_decisions (
+    msg_id  TEXT PRIMARY KEY,
+    action  TEXT
+);
 """
 
 _MIGRATIONS = [
@@ -263,6 +267,7 @@ def remove_emails(msg_ids: set[str]) -> None:
     with _conn() as con:
         con.execute(f"DELETE FROM emails WHERE msg_id IN ({placeholders})", ids_list)
         con.execute(f"DELETE FROM email_overrides WHERE msg_id IN ({placeholders})", ids_list)
+        con.execute(f"DELETE FROM email_decisions WHERE msg_id IN ({placeholders})", ids_list)
 
         # Index domaine des emails restants pour recalculer sample_senders
         remaining = {
@@ -289,6 +294,45 @@ def remove_emails(msg_ids: set[str]) -> None:
                 )
 
 
+# ── Décisions individuelles d'emails ─────────────────────────────────────────
+
+def set_email_decision(msg_id: str, action: str) -> None:
+    with _conn() as con:
+        con.execute("INSERT OR REPLACE INTO email_decisions (msg_id, action) VALUES (?,?)", (msg_id, action))
+
+
+def delete_email_decision(msg_id: str) -> None:
+    with _conn() as con:
+        con.execute("DELETE FROM email_decisions WHERE msg_id=?", (msg_id,))
+
+
+def load_email_decisions() -> dict[str, str]:
+    with _conn() as con:
+        rows = con.execute("SELECT msg_id, action FROM email_decisions").fetchall()
+    return {r["msg_id"]: r["action"] for r in rows}
+
+
+def get_email_decision(msg_id: str) -> str | None:
+    with _conn() as con:
+        row = con.execute("SELECT action FROM email_decisions WHERE msg_id=?", (msg_id,)).fetchone()
+    return row["action"] if row else None
+
+
+def count_email_decisions() -> int:
+    if not os.path.exists(DB_PATH):
+        return 0
+    with _conn() as con:
+        return con.execute("SELECT COUNT(*) FROM email_decisions").fetchone()[0]
+
+
+def clear_email_decisions_for_ids(msg_ids: set[str]) -> None:
+    if not msg_ids:
+        return
+    placeholders = ",".join("?" * len(msg_ids))
+    with _conn() as con:
+        con.execute(f"DELETE FROM email_decisions WHERE msg_id IN ({placeholders})", list(msg_ids))
+
+
 def clear_decisions_for_groups(group_ids: set[int]) -> None:
     """Efface les décisions pour les groupes dont l'action a été exécutée."""
     if not group_ids:
@@ -304,6 +348,7 @@ def clear_cache() -> None:
         con.execute("DELETE FROM emails")
         con.execute("DELETE FROM groups WHERE is_custom = 0")
         con.execute("DELETE FROM decisions")
+        con.execute("DELETE FROM email_decisions")
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

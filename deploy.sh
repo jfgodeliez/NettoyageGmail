@@ -1,7 +1,7 @@
 #!/bin/bash
 # ─────────────────────────────────────────────────────────────────────────────
 # deploy.sh — Script de déploiement initial sur VPS Ubuntu
-# Usage : bash deploy.sh
+# Usage : YOUR_DOMAIN=gmail.mondomaine.com CERTBOT_EMAIL=toi@mail.com bash deploy.sh
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
@@ -13,44 +13,47 @@ if [[ -z "$DOMAIN" || -z "$EMAIL" ]]; then
   exit 1
 fi
 
+SUDO=""
+if [[ $EUID -ne 0 ]]; then
+  SUDO="sudo"
+fi
+
 echo "==> [1/6] Mise à jour système"
-apt-get update -q && apt-get upgrade -y -q
+$SUDO apt-get update -q && $SUDO apt-get upgrade -y -q
 
 echo "==> [2/6] Installation Docker"
 if ! command -v docker &>/dev/null; then
-  curl -fsSL https://get.docker.com | sh
-  systemctl enable docker
+  curl -fsSL https://get.docker.com | $SUDO sh
+  $SUDO systemctl enable docker
+  $SUDO systemctl start docker
+  # Permettre à l'utilisateur courant d'utiliser docker sans sudo
+  $SUDO usermod -aG docker "$USER"
+  echo "   → Docker installé. Reconnectez-vous si les commandes docker échouent."
 fi
 
 echo "==> [3/6] Configuration .env"
 if [[ ! -f .env ]]; then
   cp .env.example .env
   sed -i "s/gmail.mondomaine.com/$DOMAIN/g" .env
-  echo "   → .env créé. Ajoutez vos variables si nécessaire."
+  echo "   → .env créé."
 fi
 
 echo "==> [4/6] Configuration Nginx (domaine)"
-sed -i "s/YOUR_DOMAIN/$DOMAIN/g" nginx/nginx.conf
+# Remplacer seulement si pas encore fait
+if grep -q "YOUR_DOMAIN" nginx/nginx.conf; then
+  sed -i "s/YOUR_DOMAIN/$DOMAIN/g" nginx/nginx.conf
+fi
 
-echo "==> [5/6] Obtention certificat SSL Let's Encrypt"
-# Démarrer nginx seul sur port 80 pour le challenge ACME
-docker run --rm -d --name nginx-tmp \
-  -p 80:80 \
-  -v "$(pwd)/nginx/nginx-certbot-init.conf:/etc/nginx/nginx.conf:ro" \
-  -v certbot_www:/var/www/certbot \
-  nginx:alpine 2>/dev/null || true
-
+echo "==> [5/6] Obtention certificat SSL Let's Encrypt (mode standalone)"
+# Standalone : certbot ouvre lui-même le port 80, pas besoin de nginx intermédiaire
 docker run --rm \
+  -p 80:80 \
   -v certbot_certs:/etc/letsencrypt \
-  -v certbot_www:/var/www/certbot \
-  certbot/certbot certonly --webroot \
-    -w /var/www/certbot \
+  certbot/certbot certonly --standalone \
     -d "$DOMAIN" \
     --email "$EMAIL" \
     --agree-tos \
     --non-interactive
-
-docker stop nginx-tmp 2>/dev/null || true
 
 echo "==> [6/6] Build et démarrage des containers"
 docker compose build --no-cache
@@ -58,5 +61,7 @@ docker compose up -d
 
 echo ""
 echo "✓ Déployé sur https://$DOMAIN"
-echo "  Prochaine étape : copiez credentials.json dans ce répertoire, puis :"
-echo "  docker compose restart app"
+echo ""
+echo "Prochaine étape :"
+echo "  1. Copier credentials.json dans ce répertoire"
+echo "  2. docker compose restart app"

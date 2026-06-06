@@ -57,7 +57,10 @@ def execute_decisions(
     decisions: dict[int, str],
     groups_by_id: dict[int, "EmailGroup"],  # noqa: F821
     dry_run: bool = False,
+    kept_ids: set[str] | None = None,
 ) -> ActionResult:
+    """kept_ids : emails protégés individuellement — exclus des batchs de groupe."""
+    protected = kept_ids or set()
     result = ActionResult()
     for group_id, action in decisions.items():
         if action == "keep":
@@ -66,12 +69,20 @@ def execute_decisions(
         group = groups_by_id.get(group_id)
         if not group:
             continue
-        if dry_run:
-            result.done += group.count
-            result.details.append(f"[dry-run] {action} → {group.theme} ({group.count} emails)")
+
+        # Exclure les emails marqués "keep" individuellement
+        ids = [mid for mid in group.ids if mid not in protected]
+        if not ids:
+            result.processed_group_ids.append(group_id)
             continue
 
-        ids = group.ids
+        if dry_run:
+            skipped = group.count - len(ids)
+            skip_note = f", {skipped} conservé(s) individuellement" if skipped else ""
+            result.done += len(ids)
+            result.details.append(f"[dry-run] {action} → {group.theme} ({len(ids)} emails{skip_note})")
+            continue
+
         if action == "trash":
             r = _batch_modify(service, ids, add_labels=["TRASH"], remove_labels=["INBOX"])
         elif action == "archive":
@@ -79,10 +90,11 @@ def execute_decisions(
         else:
             continue
 
+        skipped = group.count - len(ids)
+        skip_note = f", {skipped} conservé(s)" if skipped else ""
         result.done += r.done
         result.errors += r.errors
-        result.details.append(f"{action} → {group.theme} ({r.done} ok, {r.errors} erreurs)")
-        # Collecter les IDs traités pour la mise à jour du cache
+        result.details.append(f"{action} → {group.theme} ({r.done} ok, {r.errors} erreur(s){skip_note})")
         result.processed_ids.extend(ids)
         result.processed_group_ids.append(group_id)
 

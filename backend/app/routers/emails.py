@@ -10,7 +10,7 @@ from .. import cache
 
 router = APIRouter(prefix="/api/emails", tags=["emails"])
 
-VALID_EMAIL_ACTIONS = {"trash", "archive"}
+VALID_EMAIL_ACTIONS = {"trash", "archive", "keep"}
 
 
 class MoveRequest(BaseModel):
@@ -61,4 +61,9 @@ def delete_email_decision(msg_id: str, _=Depends(require_session)):
 
 @router.get("/decisions/count")
 def count_email_decisions(_=Depends(require_session)):
-    return {"count": cache.count_email_decisions()}
+    decisions = cache.load_email_decisions()
+    return {
+        "count": len(decisions),
+        "trash_count": sum(1 for a in decisions.values() if a == "trash"),
+        "keep_count": sum(1 for a in decisions.values() if a == "keep"),
+    }

@@ -45,11 +45,16 @@
       </div>
 
       <!-- Emails marqués individuellement -->
-      <div v-if="individualCount" class="mb-6 p-4 bg-red-950/40 border border-red-900 rounded-xl flex items-center justify-between">
-        <div>
-          <p class="text-red-300 font-medium text-sm">🗑 {{ individualCount }} email(s) marqué(s) individuellement pour suppression</p>
-          <p class="text-gray-500 text-xs mt-0.5">Ces emails seront traités en plus des décisions de groupe ci-dessus.</p>
-        </div>
+      <div v-if="individualTrashCount || individualKeepCount"
+        class="mb-6 p-4 bg-gray-900 border border-gray-700 rounded-xl space-y-1.5">
+        <p v-if="individualTrashCount" class="text-red-300 text-sm">
+          🗑 <strong>{{ individualTrashCount }}</strong> email(s) marqué(s) individuellement pour suppression
+          <span class="text-gray-500 text-xs ml-1">(s'ajoutent aux décisions de groupe)</span>
+        </p>
+        <p v-if="individualKeepCount" class="text-green-300 text-sm">
+          ✓ <strong>{{ individualKeepCount }}</strong> email(s) protégé(s) individuellement
+          <span class="text-gray-500 text-xs ml-1">(exclus des suppressions de groupe)</span>
+        </p>
       </div>
 
       <!-- Mode dry-run -->
@@ -102,7 +107,9 @@ const dryRun = ref(false)
 const executing = ref(false)
 const result = ref(null)
 const groupsData = ref([])
-const individualCount = ref(0)
+const individualTrashCount = ref(0)
+const individualKeepCount = ref(0)
+const individualCount = computed(() => individualTrashCount.value + individualKeepCount.value)
 
 onMounted(async () => {
   await store.load()
@@ -111,7 +118,8 @@ onMounted(async () => {
     axios.get('/api/emails/decisions/count', { withCredentials: true }),
   ])
   if (groupsRes.data.ready) groupsData.value = groupsRes.data.groups
-  individualCount.value = countRes.data.count
+  individualTrashCount.value = countRes.data.trash_count ?? 0
+  individualKeepCount.value = countRes.data.keep_count ?? 0
 })
 
 const actionableGroups = computed(() =>
@@ -129,7 +137,8 @@ async function execute() {
     const { data } = await axios.post('/api/execute', { dry_run: dryRun.value })
     result.value = data
     if (!dryRun.value && data.done > 0) {
-      individualCount.value = 0
+      individualTrashCount.value = 0
+      individualKeepCount.value = 0
       await groupsStore.load()
       groupsData.value = groupsStore.groups
     }

@@ -42,6 +42,7 @@
             :class="[
               selectedEmail?.msg_id === email.msg_id ? 'bg-blue-950 border-l-2 border-blue-500' : 'hover:bg-gray-800',
               email.email_decision === 'trash' ? 'border-l-2 border-red-700 bg-red-950/20' : '',
+              email.email_decision === 'keep'  ? 'border-l-2 border-green-700 bg-green-950/10' : '',
             ]"
             class="px-4 py-3 transition group/item">
             <!-- Ligne principale cliquable -->
@@ -54,6 +55,8 @@
                 <!-- Badges -->
                 <span v-if="email.email_decision === 'trash'"
                   class="text-xs bg-red-900 text-red-300 px-1.5 py-0.5 rounded-full flex-shrink-0">🗑</span>
+                <span v-else-if="email.email_decision === 'keep'"
+                  class="text-xs bg-green-900 text-green-300 px-1.5 py-0.5 rounded-full flex-shrink-0">✓</span>
                 <span v-else-if="email.overridden"
                   class="text-xs bg-purple-900 text-purple-300 px-1.5 py-0.5 rounded-full flex-shrink-0">↪</span>
               </div>
@@ -66,6 +69,13 @@
             </div>
             <!-- Actions (visible au hover) -->
             <div class="mt-1.5 flex gap-2 opacity-0 group-hover/item:opacity-100 transition">
+              <button @click.stop="toggleKeep(email)"
+                :class="email.email_decision === 'keep'
+                  ? 'text-green-400 border-green-700 hover:text-gray-300 hover:border-gray-600'
+                  : 'text-green-600 hover:text-green-400 border-green-900 hover:border-green-700'"
+                class="text-xs border px-2 py-0.5 rounded transition">
+                {{ email.email_decision === 'keep' ? '↩ Annuler' : '✓ Conserver' }}
+              </button>
               <button @click.stop="toggleTrash(email)"
                 :class="email.email_decision === 'trash'
                   ? 'text-red-400 border-red-700 hover:text-gray-300 hover:border-gray-600'
@@ -184,6 +194,16 @@ function onEmailMoved({ msg_id }) {
     } else {
       email.overridden = true
     }
+  }
+}
+
+async function toggleKeep(email) {
+  if (email.email_decision === 'keep') {
+    await axios.delete(`/api/emails/${email.msg_id}/decision`, { withCredentials: true })
+    email.email_decision = null
+  } else {
+    await axios.post(`/api/emails/${email.msg_id}/decision`, { action: 'keep' }, { withCredentials: true })
+    email.email_decision = 'keep'
   }
 }
 

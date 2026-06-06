@@ -56,8 +56,11 @@ def execute(body: ExecuteRequest, _=Depends(require_session)):
     # Décisions individuelles d'abord
     result = gmail_actions.execute_email_decisions(service, email_decisions, dry_run=body.dry_run)
 
-    # Décisions de groupe (en excluant les emails déjà traités individuellement)
-    group_result = gmail_actions.execute_decisions(service, decisions, groups_by_id, dry_run=body.dry_run)
+    # Emails protégés individuellement — exclus des batchs de groupe
+    kept_ids = {mid for mid, action in email_decisions.items() if action == "keep"}
+
+    # Décisions de groupe (emails "keep" individuels exclus)
+    group_result = gmail_actions.execute_decisions(service, decisions, groups_by_id, dry_run=body.dry_run, kept_ids=kept_ids)
     result.done += group_result.done
     result.errors += group_result.errors
     result.details.extend(group_result.details)

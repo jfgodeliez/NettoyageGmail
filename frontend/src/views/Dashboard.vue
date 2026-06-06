@@ -1,5 +1,5 @@
 <template>
-  <div class="max-w-6xl mx-auto px-6 py-8">
+  <div class="max-w-5xl mx-auto px-6 py-8">
 
     <!-- Non authentifié -->
     <div v-if="!authenticated" class="text-center py-24">
@@ -14,18 +14,18 @@
     </div>
 
     <!-- Chargement en cours -->
-    <div v-else-if="fetching" class="text-center py-24">
+    <div v-else-if="groupsStore.fetching" class="text-center py-24">
       <div class="text-5xl mb-6 animate-bounce">⏳</div>
       <h2 class="text-xl font-semibold text-white mb-2">Analyse de votre boîte Gmail...</h2>
-      <p class="text-gray-400 mb-6">{{ fetchProgress }} / {{ fetchTotal || '?' }} emails traités</p>
+      <p class="text-gray-400 mb-6">{{ groupsStore.fetchProgress }} / {{ groupsStore.fetchTotal || '?' }} emails traités</p>
       <div class="w-64 mx-auto bg-gray-800 rounded-full h-2">
         <div class="bg-blue-500 h-2 rounded-full transition-all duration-300"
-          :style="{ width: fetchTotal ? `${(fetchProgress / fetchTotal) * 100}%` : '10%' }" />
+          :style="{ width: groupsStore.fetchTotal ? `${(groupsStore.fetchProgress / groupsStore.fetchTotal) * 100}%` : '10%' }" />
       </div>
     </div>
 
     <!-- Aucune donnée — premier lancement -->
-    <div v-else-if="!ready" class="text-center py-24">
+    <div v-else-if="!groupsStore.ready" class="text-center py-24">
       <p class="text-4xl mb-4">🔍</p>
       <h2 class="text-xl font-semibold text-white mb-2">Boîte non encore analysée</h2>
       <p class="text-gray-400 mb-8">L'analyse récupère les métadonnées de tous vos emails (sans télécharger les corps).</p>
@@ -37,12 +37,19 @@
 
     <!-- Dashboard des groupes -->
     <div v-else>
-      <div class="flex items-center justify-between mb-6">
+      <div class="flex items-center justify-between mb-6 gap-4 flex-wrap">
         <div>
           <h1 class="text-2xl font-bold text-white">Groupes d'emails</h1>
-          <p class="text-gray-400 text-sm mt-1">{{ groups.length }} groupes • {{ totalEmails.toLocaleString() }} emails au total</p>
+          <p class="text-gray-400 text-sm mt-1">{{ groupsStore.groups.length }} groupes • {{ groupsStore.totalEmails.toLocaleString() }} emails au total</p>
         </div>
-        <div class="flex gap-3">
+        <div class="flex gap-2 flex-wrap">
+          <!-- Recherche texte -->
+          <div class="relative">
+            <span class="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500 text-sm">🔍</span>
+            <input v-model="searchQuery" placeholder="Rechercher..."
+              class="bg-gray-800 border border-gray-700 text-gray-200 text-sm rounded-lg pl-7 pr-3 py-2 w-44 focus:ring-blue-500 focus:border-blue-500 placeholder-gray-600" />
+          </div>
+          <!-- Filtre catégorie -->
           <select v-model="filterCategory"
             class="bg-gray-800 border border-gray-700 text-gray-200 text-sm rounded-lg px-3 py-2 focus:ring-blue-500 focus:border-blue-500">
             <option value="">Tous les types</option>
@@ -56,37 +63,13 @@
             class="text-gray-400 hover:text-white border border-gray-700 hover:border-gray-500 px-3 py-2 rounded-lg text-sm transition">
             🔄 Rafraîchir
           </button>
-          <button @click="showCreateGroup = true"
-            class="bg-purple-700 hover:bg-purple-600 text-white px-3 py-2 rounded-lg text-sm font-medium transition">
-            + Nouveau groupe
-          </button>
         </div>
       </div>
 
-      <!-- Modal créer groupe -->
-      <div v-if="showCreateGroup" class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
-        <div class="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-sm shadow-2xl p-6 space-y-4">
-          <h3 class="font-semibold text-white">Créer un groupe custom</h3>
-          <input v-model="newGroupName" @keyup.enter="createGroup" placeholder="Nom du groupe (ex: Famille)"
-            class="w-full bg-gray-800 border border-gray-700 text-gray-200 text-sm rounded-lg px-3 py-2 focus:ring-purple-500 focus:border-purple-500 placeholder-gray-600" />
-          <select v-model="newGroupCategory"
-            class="w-full bg-gray-800 border border-gray-700 text-gray-200 text-sm rounded-lg px-3 py-2">
-            <option value="autre">Autre</option>
-            <option value="perso">Personnel</option>
-            <option value="admin">Administratif</option>
-            <option value="commercial">Commercial</option>
-            <option value="newsletter">Newsletter</option>
-            <option value="social">Social</option>
-          </select>
-          <div class="flex gap-3 justify-end">
-            <button @click="showCreateGroup = false" class="text-gray-400 hover:text-white text-sm px-4 py-2 rounded-lg">Annuler</button>
-            <button @click="createGroup" :disabled="!newGroupName.trim()"
-              class="bg-purple-600 hover:bg-purple-500 text-white text-sm font-medium px-4 py-2 rounded-lg disabled:opacity-50">
-              Créer
-            </button>
-          </div>
-        </div>
-      </div>
+      <!-- Aucun résultat de recherche -->
+      <p v-if="filteredGroups.length === 0" class="text-gray-500 text-sm italic py-8 text-center">
+        Aucun groupe ne correspond à « {{ searchQuery || filterCategory }} »
+      </p>
 
       <!-- Grille des groupes -->
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -130,35 +113,35 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import axios from 'axios'
 import { useDecisionsStore } from '../stores/decisions.js'
+import { useGroupsStore } from '../stores/groups.js'
 
 const store = useDecisionsStore()
+const groupsStore = useGroupsStore()
 
 const authenticated = ref(false)
 const authError = ref('')
-const ready = ref(false)
-const fetching = ref(false)
-const fetchProgress = ref(0)
-const fetchTotal = ref(0)
-const groups = ref([])
+const searchQuery = ref('')
 const filterCategory = ref('')
-const showCreateGroup = ref(false)
-const newGroupName = ref('')
-const newGroupCategory = ref('autre')
 let pollInterval = null
 
-const totalEmails = computed(() => groups.value.reduce((s, g) => s + g.count, 0))
-
-const filteredGroups = computed(() =>
-  filterCategory.value
-    ? groups.value.filter(g => g.category === filterCategory.value)
-    : groups.value
-)
+const filteredGroups = computed(() => {
+  let list = groupsStore.groups
+  if (filterCategory.value) list = list.filter(g => g.category === filterCategory.value)
+  if (searchQuery.value) {
+    const q = searchQuery.value.toLowerCase()
+    list = list.filter(g =>
+      g.theme.toLowerCase().includes(q) ||
+      g.sample_senders?.some(s => s.toLowerCase().includes(q))
+    )
+  }
+  return list
+})
 
 onMounted(async () => {
   const params = new URLSearchParams(window.location.search)
   if (params.get('error')) authError.value = params.get('error')
 
-  const { data: status } = await axios.get('/auth/status')
+  const { data: status } = await axios.get('/auth/status', { withCredentials: true })
   authenticated.value = status.authenticated
   if (authenticated.value) {
     await store.load()
@@ -169,53 +152,35 @@ onMounted(async () => {
 onUnmounted(() => clearInterval(pollInterval))
 
 async function loadGroups() {
-  const { data } = await axios.get('/api/groups')
-  if (data.ready) {
-    ready.value = true
-    fetching.value = false
-    groups.value = data.groups.map(g => ({ ...g, decision: store.decisions[g.group_id] }))
-    clearInterval(pollInterval)
-  } else if (data.fetching) {
-    fetching.value = true
-    fetchProgress.value = data.progress || 0
-    fetchTotal.value = data.total || 0
-    startPolling()
-  }
+  await groupsStore.load()
+  if (groupsStore.fetching) startPolling()
 }
 
 async function startFetch() {
-  await axios.post('/api/groups/fetch')
-  fetching.value = true
+  await axios.post('/api/groups/fetch', {}, { withCredentials: true })
+  groupsStore.fetching = true
   startPolling()
-}
-
-async function createGroup() {
-  if (!newGroupName.value.trim()) return
-  await axios.post('/api/groups', { theme: newGroupName.value.trim(), category: newGroupCategory.value })
-  newGroupName.value = ''
-  newGroupCategory.value = 'autre'
-  showCreateGroup.value = false
-  await loadGroups()
 }
 
 function startPolling() {
   clearInterval(pollInterval)
   pollInterval = setInterval(async () => {
-    const { data } = await axios.get('/api/groups/fetch-status')
-    fetchProgress.value = data.progress || 0
-    fetchTotal.value = data.total || 0
+    const { data } = await axios.get('/api/groups/fetch-status', { withCredentials: true })
+    groupsStore.fetchProgress = data.progress || 0
+    groupsStore.fetchTotal = data.total || 0
     if (!data.running && data.ready) {
-      await loadGroups()
+      await groupsStore.load()
+      clearInterval(pollInterval)
     } else if (data.error) {
-      fetching.value = false
+      groupsStore.fetching = false
       clearInterval(pollInterval)
     }
   }, 2000)
 }
 
 async function refreshData() {
-  ready.value = false
-  await axios.get('/api/groups?refresh=true')
+  groupsStore.ready = false
+  await axios.get('/api/groups?refresh=true', { withCredentials: true })
   await startFetch()
 }
 

@@ -11,30 +11,46 @@
         <!-- Sujet de l'email -->
         <p class="text-sm text-gray-400 truncate">{{ email.subject }}</p>
 
-        <!-- Sélecteur de groupe existant -->
+        <!-- Recherche + sélecteur de groupe existant -->
         <div>
           <label class="block text-xs text-gray-500 mb-1">Déplacer vers un groupe existant</label>
-          <select v-model="selectedGroupId"
-            class="w-full bg-gray-800 border border-gray-700 text-gray-200 text-sm rounded-lg px-3 py-2 focus:ring-blue-500 focus:border-blue-500">
-            <option value="">— Choisir un groupe —</option>
-            <option v-for="g in allGroups" :key="g.group_id" :value="g.group_id"
-              :disabled="g.group_id === currentGroupId">
-              {{ g.is_custom ? '★ ' : '' }}{{ g.theme }}
-              {{ g.group_id === currentGroupId ? '(groupe actuel)' : '' }}
-            </option>
-          </select>
+          <!-- Filtre de recherche -->
+          <div class="relative mb-1.5">
+            <span class="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500 text-xs">🔍</span>
+            <input v-model="groupSearch" placeholder="Filtrer les groupes..."
+              class="w-full bg-gray-800 border border-gray-700 text-gray-200 text-sm rounded-lg pl-7 pr-3 py-1.5 focus:ring-blue-500 focus:border-blue-500 placeholder-gray-600" />
+          </div>
+          <!-- Liste filtrée (max-height scrollable) -->
+          <div class="bg-gray-800 border border-gray-700 rounded-lg max-h-40 overflow-y-auto divide-y divide-gray-700">
+            <button v-for="g in filteredGroupList" :key="g.group_id"
+              @click="selectedGroupId = g.group_id"
+              :disabled="g.group_id === currentGroupId"
+              class="w-full text-left px-3 py-2 text-sm transition flex items-center justify-between"
+              :class="g.group_id === selectedGroupId
+                ? 'bg-blue-900/50 text-blue-300'
+                : g.group_id === currentGroupId
+                  ? 'text-gray-600 cursor-not-allowed'
+                  : 'text-gray-300 hover:bg-gray-700'">
+              <span>{{ g.is_custom ? '★ ' : '' }}{{ g.theme }}</span>
+              <span v-if="g.group_id === currentGroupId" class="text-xs text-gray-600">actuel</span>
+              <span v-else-if="g.group_id === selectedGroupId" class="text-xs text-blue-400">✓</span>
+            </button>
+            <p v-if="filteredGroupList.length === 0" class="px-3 py-2 text-xs text-gray-600 italic">
+              Aucun groupe correspondant
+            </p>
+          </div>
         </div>
 
         <!-- Séparateur -->
         <div class="flex items-center gap-3 text-gray-600 text-xs">
           <div class="flex-1 border-t border-gray-800"></div>
-          ou
+          ou créer
           <div class="flex-1 border-t border-gray-800"></div>
         </div>
 
         <!-- Créer un nouveau groupe -->
         <div>
-          <label class="block text-xs text-gray-500 mb-1">Créer un nouveau groupe custom</label>
+          <label class="block text-xs text-gray-500 mb-1">Nouveau groupe custom</label>
           <div class="flex gap-2">
             <input v-model="newGroupName" @keyup.enter="createAndMove"
               placeholder="Nom du groupe (ex: Famille)"
@@ -43,7 +59,7 @@
               class="bg-gray-800 border border-gray-700 text-gray-200 text-sm rounded-lg px-2 py-2">
               <option value="autre">Autre</option>
               <option value="perso">Personnel</option>
-              <option value="admin">Administratif</option>
+              <option value="admin">Admin</option>
               <option value="commercial">Commercial</option>
               <option value="newsletter">Newsletter</option>
               <option value="social">Social</option>
@@ -79,7 +95,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import axios from 'axios'
 
 const props = defineProps({ email: Object, currentGroupId: Number })
@@ -91,9 +107,16 @@ const newGroupName = ref('')
 const newGroupCategory = ref('autre')
 const saving = ref(false)
 const error = ref('')
+const groupSearch = ref('')
+
+const filteredGroupList = computed(() => {
+  if (!groupSearch.value) return allGroups.value
+  const q = groupSearch.value.toLowerCase()
+  return allGroups.value.filter(g => g.theme.toLowerCase().includes(q))
+})
 
 onMounted(async () => {
-  const { data } = await axios.get('/api/groups/list')
+  const { data } = await axios.get('/api/groups/list', { withCredentials: true })
   allGroups.value = data
 })
 
@@ -102,7 +125,7 @@ async function moveToExisting() {
   saving.value = true
   error.value = ''
   try {
-    await axios.post(`/api/emails/${props.email.msg_id}/move`, { target_group_id: selectedGroupId.value })
+    await axios.post(`/api/emails/${props.email.msg_id}/move`, { target_group_id: selectedGroupId.value }, { withCredentials: true })
     emit('moved', { msg_id: props.email.msg_id, group_id: selectedGroupId.value })
     emit('close')
   } catch (e) {
@@ -120,8 +143,8 @@ async function createAndMove() {
     const { data: group } = await axios.post('/api/groups', {
       theme: newGroupName.value.trim(),
       category: newGroupCategory.value,
-    })
-    await axios.post(`/api/emails/${props.email.msg_id}/move`, { target_group_id: group.group_id })
+    }, { withCredentials: true })
+    await axios.post(`/api/emails/${props.email.msg_id}/move`, { target_group_id: group.group_id }, { withCredentials: true })
     emit('moved', { msg_id: props.email.msg_id, group_id: group.group_id, new_group: group })
     emit('close')
   } catch (e) {
